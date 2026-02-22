@@ -58,6 +58,10 @@ type Config struct {
 	Heartbeat    HeartbeatConfig    `json:"heartbeat"`
 	Devices      DevicesConfig      `json:"devices"`
 	Orchestrator OrchestratorConfig `json:"orchestrator,omitempty"`
+	LLMPool      LLMPoolConfig      `json:"llm_pool,omitempty"`
+	PlanMode     PlanModeConfig     `json:"plan_mode,omitempty"`
+	Workers      WorkersConfig      `json:"workers,omitempty"`
+	Monitor      MonitorConfig      `json:"monitor,omitempty"`
 }
 
 // MarshalJSON implements custom JSON marshaling for Config
@@ -328,6 +332,39 @@ type AgentTemplateConfig struct {
 	IdleTimeout        string   `json:"idle_timeout"`
 	Workspace          string   `json:"workspace,omitempty"`
 	Priority           int      `json:"priority"`
+}
+
+type LLMPoolConfig struct {
+	Models []LLMModelConfig `json:"models"`
+}
+
+type LLMModelConfig struct {
+	Name             string `json:"name"`
+	Model            string `json:"model"`
+	MaxConcurrentAPI int    `json:"max_concurrent_api"`
+	MaxTokensPerMin  int    `json:"max_tokens_per_min,omitempty"`
+	RequestTimeout   string `json:"request_timeout,omitempty"`
+}
+
+type PlanModeConfig struct {
+	Mode              string `json:"mode"`
+	AutoApproveSimple bool   `json:"auto_approve_simple"`
+	SimpleThreshold   int    `json:"simple_threshold"`
+	ShowPlanDetails   bool   `json:"show_plan_details"`
+}
+
+type WorkersConfig struct {
+	AutoScale    bool   `json:"auto_scale"`
+	Min          int    `json:"min"`
+	Max          int    `json:"max"`
+	DefaultModel string `json:"default_model"`
+}
+
+type MonitorConfig struct {
+	Enabled         bool   `json:"enabled"`
+	Model           string `json:"model"`
+	CheckInterval   string `json:"check_interval"`
+	RestartAttempts int    `json:"restart_attempts"`
 }
 
 type ProvidersConfig struct {
