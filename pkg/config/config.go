@@ -47,16 +47,17 @@ func (f *FlexibleStringSlice) UnmarshalJSON(data []byte) error {
 }
 
 type Config struct {
-	Agents    AgentsConfig    `json:"agents"`
-	Bindings  []AgentBinding  `json:"bindings,omitempty"`
-	Session   SessionConfig   `json:"session,omitempty"`
-	Channels  ChannelsConfig  `json:"channels"`
-	Providers ProvidersConfig `json:"providers,omitempty"`
-	ModelList []ModelConfig   `json:"model_list"` // New model-centric provider configuration
-	Gateway   GatewayConfig   `json:"gateway"`
-	Tools     ToolsConfig     `json:"tools"`
-	Heartbeat HeartbeatConfig `json:"heartbeat"`
-	Devices   DevicesConfig   `json:"devices"`
+	Agents       AgentsConfig       `json:"agents"`
+	Bindings     []AgentBinding     `json:"bindings,omitempty"`
+	Session      SessionConfig      `json:"session,omitempty"`
+	Channels     ChannelsConfig     `json:"channels"`
+	Providers    ProvidersConfig    `json:"providers,omitempty"`
+	ModelList    []ModelConfig      `json:"model_list"`
+	Gateway      GatewayConfig      `json:"gateway"`
+	Tools        ToolsConfig        `json:"tools"`
+	Heartbeat    HeartbeatConfig    `json:"heartbeat"`
+	Devices      DevicesConfig      `json:"devices"`
+	Orchestrator OrchestratorConfig `json:"orchestrator,omitempty"`
 }
 
 // MarshalJSON implements custom JSON marshaling for Config
@@ -304,6 +305,29 @@ type HeartbeatConfig struct {
 type DevicesConfig struct {
 	Enabled    bool `json:"enabled"     env:"PICOCLAW_DEVICES_ENABLED"`
 	MonitorUSB bool `json:"monitor_usb" env:"PICOCLAW_DEVICES_MONITOR_USB"`
+}
+
+type OrchestratorConfig struct {
+	Enabled          bool                           `json:"enabled"`
+	AutoScale        bool                           `json:"auto_scale"`
+	MinAgents        int                            `json:"min_agents"`
+	MaxAgents        int                            `json:"max_agents"`
+	ScaleUpThreshold int                            `json:"scale_up_threshold"`
+	ScaleDownAfter   string                         `json:"scale_down_after"`
+	CheckInterval    string                         `json:"check_interval"`
+	UtilizationHigh  float64                        `json:"utilization_high"`
+	UtilizationLow   float64                        `json:"utilization_low"`
+	DefaultTemplate  string                         `json:"default_template"`
+	Templates        map[string]AgentTemplateConfig `json:"templates"`
+}
+
+type AgentTemplateConfig struct {
+	Name               string   `json:"name"`
+	Capabilities       []string `json:"capabilities"`
+	MaxConcurrentTasks int      `json:"max_concurrent_tasks"`
+	IdleTimeout        string   `json:"idle_timeout"`
+	Workspace          string   `json:"workspace,omitempty"`
+	Priority           int      `json:"priority"`
 }
 
 type ProvidersConfig struct {

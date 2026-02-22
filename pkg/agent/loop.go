@@ -153,6 +153,10 @@ func registerSharedTools(
 		agentMessageTool := tools.NewAgentMessageTool(agent.Workspace, string(agentID))
 		agent.Tools.Register(agentMessageTool)
 
+		// Orchestration tool for auto-scaling and multi-agent coordination
+		orchestrateTool := tools.NewOrchestrateToolSimple(agent.Workspace, string(agentID))
+		agent.Tools.Register(orchestrateTool)
+
 		// Update context builder with the complete tools registry
 		agent.ContextBuilder.SetToolsRegistry(agent.Tools)
 	}
