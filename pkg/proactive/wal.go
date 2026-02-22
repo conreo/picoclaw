@@ -16,6 +16,9 @@ const (
 	EntryTypeHeal        EntryType = "heal"
 	EntryTypeSchedule    EntryType = "schedule"
 	EntryTypeInvestigate EntryType = "investigate"
+	EntryTypeTask        EntryType = "task"
+	EntryTypePlan        EntryType = "plan"
+	EntryTypeUserRequest EntryType = "user_request"
 )
 
 type EntryStatus string

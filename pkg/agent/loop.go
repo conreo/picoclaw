@@ -759,7 +759,7 @@ func (al *AgentLoop) updateToolContexts(agent *AgentInstance, channel, chatID st
 func (al *AgentLoop) maybeSummarize(agent *AgentInstance, sessionKey, channel, chatID string) {
 	newHistory := agent.Sessions.GetHistory(sessionKey)
 	tokenEstimate := al.estimateTokens(newHistory)
-	threshold := agent.ContextWindow * 75 / 100
+	threshold := agent.ContextWindow * 85 / 100
 
 	if len(newHistory) > 20 || tokenEstimate > threshold {
 		summarizeKey := agent.ID + ":" + sessionKey
@@ -799,7 +799,7 @@ func (al *AgentLoop) forceCompression(agent *AgentInstance, sessionKey string) {
 	mid := len(conversation) / 2
 
 	// New history structure:
-	// 1. System Prompt (with compression note appended)
+	// 1. System Prompt (unchanged)
 	// 2. Second half of conversation
 	// 3. Last message
 
@@ -808,15 +808,8 @@ func (al *AgentLoop) forceCompression(agent *AgentInstance, sessionKey string) {
 
 	newHistory := make([]providers.Message, 0)
 
-	// Append compression note to the original system prompt instead of adding a new system message
-	// This avoids having two consecutive system messages which some APIs (like Zhipu) reject
-	compressionNote := fmt.Sprintf(
-		"\n\n[System Note: Emergency compression dropped %d oldest messages due to context limit]",
-		droppedCount,
-	)
-	enhancedSystemPrompt := history[0]
-	enhancedSystemPrompt.Content = enhancedSystemPrompt.Content + compressionNote
-	newHistory = append(newHistory, enhancedSystemPrompt)
+	// Keep the original system prompt intact - modifying it confuses some LLMs
+	newHistory = append(newHistory, history[0])
 
 	newHistory = append(newHistory, keptConversation...)
 	newHistory = append(newHistory, history[len(history)-1]) // Last message

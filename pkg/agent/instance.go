@@ -88,7 +88,11 @@ func NewAgentInstance(
 		temperature = *defaults.Temperature
 	}
 
-	// Resolve fallback candidates
+	contextWindow := providers.GetContextWindow(model)
+	if maxTokens > 0 && maxTokens < contextWindow {
+		contextWindow = maxTokens
+	}
+
 	modelCfg := providers.ModelConfig{
 		Primary:   model,
 		Fallbacks: fallbacks,
@@ -104,7 +108,7 @@ func NewAgentInstance(
 		MaxIterations:  maxIter,
 		MaxTokens:      maxTokens,
 		Temperature:    temperature,
-		ContextWindow:  maxTokens,
+		ContextWindow:  contextWindow,
 		Provider:       provider,
 		Sessions:       sessionsManager,
 		ContextBuilder: contextBuilder,

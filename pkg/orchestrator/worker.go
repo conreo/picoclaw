@@ -21,45 +21,53 @@ const (
 )
 
 type WorkerTask struct {
-	PlanID     string
-	TaskID     string
-	Task       plan.Task
-	ResultChan chan TaskResult
+	QueueTaskID string
+	PlanID      string
+	TaskID      string
+	Description string
+	Model       string
+	Priority    string
+	Task        plan.Task
+	ResultChan  chan TaskResult
 }
 
 type TaskResult struct {
-	Success bool
-	Result  string
-	Error   error
+	Success     bool
+	Result      string
+	Error       error
+	QueueTaskID string
 }
 
 type Worker struct {
-	ID            string
-	Model         string
-	State         WorkerState
-	CurrentTask   *WorkerTask
-	wal           *proactive.WAL
-	llmPool       *llm.Pool
-	heartbeatChan chan time.Time
-	stopChan      chan struct{}
-	mu            sync.RWMutex
-	startedAt     time.Time
-	lastActivity  time.Time
-	tasksComplete int64
-	tasksFailed   int64
+	ID              string
+	Model           string
+	State           WorkerState
+	CurrentTask     *WorkerTask
+	wal             *proactive.WAL
+	llmPool         *llm.Pool
+	heartbeatChan   chan time.Time
+	stopChan        chan struct{}
+	mu              sync.RWMutex
+	startedAt       time.Time
+	lastActivity    time.Time
+	lastLLMActivity time.Time
+	tasksComplete   int64
+	tasksFailed     int64
 }
 
 func NewWorker(id, model string, workspace string, llmPool *llm.Pool) *Worker {
+	now := time.Now()
 	return &Worker{
-		ID:            id,
-		Model:         model,
-		State:         WorkerStateIdle,
-		wal:           proactive.NewWAL(workspace),
-		llmPool:       llmPool,
-		heartbeatChan: make(chan time.Time, 10),
-		stopChan:      make(chan struct{}),
-		startedAt:     time.Now(),
-		lastActivity:  time.Now(),
+		ID:              id,
+		Model:           model,
+		State:           WorkerStateIdle,
+		wal:             proactive.NewWAL(workspace),
+		llmPool:         llmPool,
+		heartbeatChan:   make(chan time.Time, 10),
+		stopChan:        make(chan struct{}),
+		startedAt:       now,
+		lastActivity:    now,
+		lastLLMActivity: now,
 	}
 }
 
@@ -90,6 +98,7 @@ func (w *Worker) executeTask(ctx context.Context, task WorkerTask) {
 	w.CurrentTask = &task
 	w.State = WorkerStateBusy
 	w.lastActivity = time.Now()
+	w.lastLLMActivity = time.Now()
 	w.mu.Unlock()
 
 	defer func() {
@@ -100,7 +109,7 @@ func (w *Worker) executeTask(ctx context.Context, task WorkerTask) {
 		w.mu.Unlock()
 	}()
 
-	entry, err := w.wal.Write(proactive.EntryTypeSchedule, task.Task.Description, fmt.Sprintf("Plan: %s, Task: %s", task.PlanID, task.TaskID))
+	entry, err := w.wal.Write(proactive.EntryTypeSchedule, task.Description, fmt.Sprintf("Plan: %s, Task: %s", task.PlanID, task.TaskID))
 	if err != nil {
 		task.ResultChan <- TaskResult{Success: false, Error: err}
 		w.tasksFailed++
@@ -116,7 +125,9 @@ func (w *Worker) executeTask(ctx context.Context, task WorkerTask) {
 	}
 	defer w.llmPool.Release(w.Model)
 
-	result, err := w.processTask(ctx, task.Task)
+	w.UpdateLLMActivity()
+
+	result, err := w.processTask(ctx, task)
 	if err != nil {
 		w.wal.Fail(entry.ID, err.Error(), "Manual intervention required")
 		task.ResultChan <- TaskResult{Success: false, Error: err}
@@ -125,11 +136,12 @@ func (w *Worker) executeTask(ctx context.Context, task WorkerTask) {
 	}
 
 	w.wal.Complete(entry.ID, result)
-	task.ResultChan <- TaskResult{Success: true, Result: result}
+	task.ResultChan <- TaskResult{Success: true, Result: result, QueueTaskID: task.QueueTaskID}
 	w.tasksComplete++
 }
 
-func (w *Worker) processTask(ctx context.Context, task plan.Task) (string, error) {
+func (w *Worker) processTask(ctx context.Context, task WorkerTask) (string, error) {
+	w.UpdateLLMActivity()
 	time.Sleep(100 * time.Millisecond)
 	return fmt.Sprintf("Task '%s' completed", task.Description), nil
 }
@@ -138,6 +150,29 @@ func (w *Worker) setState(state WorkerState) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.State = state
+	w.lastActivity = time.Now()
+}
+
+func (w *Worker) UpdateLLMActivity() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.lastLLMActivity = time.Now()
+}
+
+func (w *Worker) SetCurrentTask(task *WorkerTask) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.CurrentTask = task
+	w.State = WorkerStateBusy
+	w.lastActivity = time.Now()
+	w.lastLLMActivity = time.Now()
+}
+
+func (w *Worker) StopCurrentTask() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.CurrentTask = nil
+	w.State = WorkerStateIdle
 	w.lastActivity = time.Now()
 }
 
@@ -151,14 +186,15 @@ func (w *Worker) GetStatus() WorkerStatus {
 	}
 
 	return WorkerStatus{
-		ID:            w.ID,
-		Model:         w.Model,
-		State:         string(w.State),
-		CurrentTask:   currentTaskID,
-		LastActivity:  w.lastActivity,
-		TasksComplete: w.tasksComplete,
-		TasksFailed:   w.tasksFailed,
-		Uptime:        time.Since(w.startedAt),
+		ID:              w.ID,
+		Model:           w.Model,
+		State:           string(w.State),
+		CurrentTask:     currentTaskID,
+		LastActivity:    w.lastActivity,
+		LastLLMActivity: w.lastLLMActivity,
+		TasksComplete:   w.tasksComplete,
+		TasksFailed:     w.tasksFailed,
+		Uptime:          time.Since(w.startedAt),
 	}
 }
 
@@ -167,12 +203,13 @@ func (w *Worker) Heartbeat() <-chan time.Time {
 }
 
 type WorkerStatus struct {
-	ID            string        `json:"id"`
-	Model         string        `json:"model"`
-	State         string        `json:"state"`
-	CurrentTask   string        `json:"current_task,omitempty"`
-	LastActivity  time.Time     `json:"last_activity"`
-	TasksComplete int64         `json:"tasks_complete"`
-	TasksFailed   int64         `json:"tasks_failed"`
-	Uptime        time.Duration `json:"uptime"`
+	ID              string        `json:"id"`
+	Model           string        `json:"model"`
+	State           string        `json:"state"`
+	CurrentTask     string        `json:"current_task,omitempty"`
+	LastActivity    time.Time     `json:"last_activity"`
+	LastLLMActivity time.Time     `json:"last_llm_activity"`
+	TasksComplete   int64         `json:"tasks_complete"`
+	TasksFailed     int64         `json:"tasks_failed"`
+	Uptime          time.Duration `json:"uptime"`
 }

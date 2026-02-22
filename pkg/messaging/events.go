@@ -17,6 +17,8 @@ const (
 	EventTaskFailed   EventType = "task:failed"
 	EventAlert        EventType = "alert:broadcast"
 	EventHeartbeat    EventType = "agent:heartbeat"
+	EventError        EventType = "error"
+	EventWarning      EventType = "warning"
 )
 
 type Priority string
@@ -72,6 +74,10 @@ func (e *AgentEvent) WithPayload(key string, value any) *AgentEvent {
 	}
 	e.Payload[key] = value
 	return e
+}
+
+func (e *AgentEvent) WithMetadata(key string, value any) *AgentEvent {
+	return e.WithPayload(key, value)
 }
 
 func (e *AgentEvent) IsBroadcast() bool {
