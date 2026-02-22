@@ -5,14 +5,17 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sipeed/picoclaw/pkg/proactive"
 )
 
 type ProactiveTool struct {
 	wal       *proactive.WAL
+	sharedWAL *proactive.SharedWAL
 	buffer    *proactive.Buffer
 	workspace string
+	agentID   string
 	channel   string
 	chatID    string
 	mu        sync.RWMutex
@@ -21,9 +24,28 @@ type ProactiveTool struct {
 func NewProactiveTool(workspace string, restrict bool) *ProactiveTool {
 	return &ProactiveTool{
 		workspace: workspace,
+		agentID:   "main",
 		wal:       proactive.NewWAL(workspace),
+		sharedWAL: proactive.NewSharedWAL(workspace, "main"),
 		buffer:    proactive.NewBuffer(workspace),
 	}
+}
+
+func NewProactiveToolWithAgent(workspace, agentID string, restrict bool) *ProactiveTool {
+	return &ProactiveTool{
+		workspace: workspace,
+		agentID:   agentID,
+		wal:       proactive.NewWAL(workspace),
+		sharedWAL: proactive.NewSharedWAL(workspace, agentID),
+		buffer:    proactive.NewBuffer(workspace),
+	}
+}
+
+func (t *ProactiveTool) SetAgentID(agentID string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.agentID = agentID
+	t.sharedWAL = proactive.NewSharedWAL(t.workspace, agentID)
 }
 
 func (t *ProactiveTool) Name() string {
@@ -44,9 +66,19 @@ func (t *ProactiveTool) Description() string {
    - 'buffer_read' to retrieve stored content
    - 'buffer_clear' when task completes
 
-3. **Autonomous Scheduling** - Combine with 'cron' tool for self-scheduling tasks
+3. **Shared WAL Operations** - Multi-agent coordination:
+   - 'shared_assign' to assign a task to another agent
+   - 'shared_claim' to claim an available task
+   - 'shared_complete' to mark a claimed task complete
+   - 'shared_fail' to mark a claimed task failed
+   - 'shared_broadcast' to send a message to all agents
+   - 'shared_read' to read coordination entries
+   - 'shared_heartbeat' to signal agent is alive
+   - 'shared_agents' to list active agents
 
-Actions: wal_write, wal_complete, wal_fail, wal_read, wal_recover, wal_clear, buffer_append, buffer_read, buffer_clear, buffer_sections`
+4. **Autonomous Scheduling** - Combine with 'cron' tool for self-scheduling tasks
+
+Actions: wal_write, wal_complete, wal_fail, wal_read, wal_recover, wal_clear, buffer_append, buffer_read, buffer_clear, buffer_sections, shared_assign, shared_claim, shared_complete, shared_fail, shared_broadcast, shared_read, shared_heartbeat, shared_agents, shared_clear`
 }
 
 func (t *ProactiveTool) Parameters() map[string]any {
@@ -55,7 +87,7 @@ func (t *ProactiveTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"action": map[string]any{
 				"type":        "string",
-				"enum":        []string{"wal_write", "wal_complete", "wal_fail", "wal_read", "wal_recover", "wal_clear", "buffer_append", "buffer_read", "buffer_clear", "buffer_sections"},
+				"enum":        []string{"wal_write", "wal_complete", "wal_fail", "wal_read", "wal_recover", "wal_clear", "buffer_append", "buffer_read", "buffer_clear", "buffer_sections", "shared_assign", "shared_claim", "shared_complete", "shared_fail", "shared_broadcast", "shared_read", "shared_heartbeat", "shared_agents", "shared_clear", "shared_my_tasks"},
 				"description": "Action to perform",
 			},
 			"type": map[string]any{
@@ -73,11 +105,11 @@ func (t *ProactiveTool) Parameters() map[string]any {
 			},
 			"message": map[string]any{
 				"type":        "string",
-				"description": "Description or message (for wal_write, buffer_append)",
+				"description": "Description or message (for wal_write, buffer_append, shared_broadcast)",
 			},
 			"output": map[string]any{
 				"type":        "string",
-				"description": "Result output (for wal_complete, wal_fail)",
+				"description": "Result output (for wal_complete, wal_fail, shared_complete)",
 			},
 			"recovery": map[string]any{
 				"type":        "string",
@@ -95,6 +127,26 @@ func (t *ProactiveTool) Parameters() map[string]any {
 			"content": map[string]any{
 				"type":        "string",
 				"description": "Content to append (for buffer_append)",
+			},
+			"target_agent": map[string]any{
+				"type":        "string",
+				"description": "Target agent ID (for shared_assign)",
+			},
+			"task_action": map[string]any{
+				"type":        "string",
+				"description": "Action/task description (for shared_assign)",
+			},
+			"task_id": map[string]any{
+				"type":        "string",
+				"description": "Task ID (for shared_claim, shared_complete, shared_fail)",
+			},
+			"expires_seconds": map[string]any{
+				"type":        "integer",
+				"description": "Task expiration in seconds (for shared_assign)",
+			},
+			"payload": map[string]any{
+				"type":        "object",
+				"description": "Additional payload data (for shared_assign)",
 			},
 		},
 		"required": []string{"action"},
@@ -135,6 +187,26 @@ func (t *ProactiveTool) Execute(ctx context.Context, args map[string]any) *ToolR
 		return t.bufferClear(args)
 	case "buffer_sections":
 		return t.bufferSections()
+	case "shared_assign":
+		return t.sharedAssign(args)
+	case "shared_claim":
+		return t.sharedClaim(args)
+	case "shared_complete":
+		return t.sharedComplete(args)
+	case "shared_fail":
+		return t.sharedFail(args)
+	case "shared_broadcast":
+		return t.sharedBroadcast(args)
+	case "shared_read":
+		return t.sharedRead(args)
+	case "shared_heartbeat":
+		return t.sharedHeartbeat()
+	case "shared_agents":
+		return t.sharedAgents()
+	case "shared_clear":
+		return t.sharedClear(args)
+	case "shared_my_tasks":
+		return t.sharedMyTasks()
 	default:
 		return ErrorResult(fmt.Sprintf("unknown action: %s", action))
 	}
@@ -324,4 +396,152 @@ func (t *ProactiveTool) bufferSections() *ToolResult {
 	}
 
 	return SilentResult(fmt.Sprintf("Buffer sections: %s", strings.Join(sections, ", ")))
+}
+
+func (t *ProactiveTool) sharedAssign(args map[string]any) *ToolResult {
+	targetAgent, _ := args["target_agent"].(string)
+	if targetAgent == "" {
+		return ErrorResult("target_agent is required for shared_assign")
+	}
+
+	taskAction, _ := args["task_action"].(string)
+	if taskAction == "" {
+		taskAction, _ = args["action"].(string)
+	}
+	if taskAction == "" {
+		return ErrorResult("task_action is required for shared_assign")
+	}
+
+	payload, _ := args["payload"].(map[string]any)
+	if payload == nil {
+		payload = make(map[string]any)
+	}
+
+	var expiresIn time.Duration
+	if sec, ok := args["expires_seconds"].(float64); ok && sec > 0 {
+		expiresIn = time.Duration(sec) * time.Second
+	}
+
+	entry, err := t.sharedWAL.AssignTask(targetAgent, taskAction, payload, expiresIn)
+	if err != nil {
+		return ErrorResult(fmt.Sprintf("failed to assign task: %v", err))
+	}
+
+	return SilentResult(fmt.Sprintf("Task assigned to agent '%s': task_id=%s action=%s",
+		targetAgent, entry.TaskID, taskAction))
+}
+
+func (t *ProactiveTool) sharedClaim(args map[string]any) *ToolResult {
+	taskID, _ := args["task_id"].(string)
+	if taskID == "" {
+		return ErrorResult("task_id is required for shared_claim")
+	}
+
+	entry, err := t.sharedWAL.ClaimTask(taskID)
+	if err != nil {
+		return ErrorResult(fmt.Sprintf("failed to claim task: %v", err))
+	}
+
+	return SilentResult(fmt.Sprintf("Task claimed: task_id=%s action=%s", entry.TaskID, entry.Action))
+}
+
+func (t *ProactiveTool) sharedComplete(args map[string]any) *ToolResult {
+	taskID, _ := args["task_id"].(string)
+	if taskID == "" {
+		return ErrorResult("task_id is required for shared_complete")
+	}
+
+	output, _ := args["output"].(string)
+
+	if err := t.sharedWAL.CompleteTask(taskID, output); err != nil {
+		return ErrorResult(fmt.Sprintf("failed to complete task: %v", err))
+	}
+
+	return SilentResult(fmt.Sprintf("Task completed: task_id=%s", taskID))
+}
+
+func (t *ProactiveTool) sharedFail(args map[string]any) *ToolResult {
+	taskID, _ := args["task_id"].(string)
+	if taskID == "" {
+		return ErrorResult("task_id is required for shared_fail")
+	}
+
+	reason, _ := args["output"].(string)
+	if reason == "" {
+		reason, _ = args["message"].(string)
+	}
+
+	if err := t.sharedWAL.FailTask(taskID, reason); err != nil {
+		return ErrorResult(fmt.Sprintf("failed to mark task as failed: %v", err))
+	}
+
+	return SilentResult(fmt.Sprintf("Task failed: task_id=%s reason=%s", taskID, reason))
+}
+
+func (t *ProactiveTool) sharedBroadcast(args map[string]any) *ToolResult {
+	message, _ := args["message"].(string)
+	if message == "" {
+		return ErrorResult("message is required for shared_broadcast")
+	}
+
+	entry, err := t.sharedWAL.Broadcast(message)
+	if err != nil {
+		return ErrorResult(fmt.Sprintf("failed to broadcast: %v", err))
+	}
+
+	return SilentResult(fmt.Sprintf("Broadcast sent: id=%s message=%s", entry.ID, message))
+}
+
+func (t *ProactiveTool) sharedRead(args map[string]any) *ToolResult {
+	entries := t.sharedWAL.Read()
+
+	if len(entries) == 0 {
+		return SilentResult("No shared WAL entries found")
+	}
+
+	return SilentResult(t.sharedWAL.FormatEntries(entries))
+}
+
+func (t *ProactiveTool) sharedHeartbeat() *ToolResult {
+	if err := t.sharedWAL.Heartbeat(); err != nil {
+		return ErrorResult(fmt.Sprintf("failed to send heartbeat: %v", err))
+	}
+
+	return SilentResult(fmt.Sprintf("Heartbeat sent from agent: %s", t.agentID))
+}
+
+func (t *ProactiveTool) sharedAgents() *ToolResult {
+	agents := t.sharedWAL.GetActiveAgents()
+
+	if len(agents) == 0 {
+		return SilentResult("No active agents found")
+	}
+
+	return SilentResult(fmt.Sprintf("Active agents: %s", strings.Join(agents, ", ")))
+}
+
+func (t *ProactiveTool) sharedClear(args map[string]any) *ToolResult {
+	completedOnly := true
+	if v, ok := args["all"].(bool); ok && v {
+		completedOnly = false
+	}
+
+	if err := t.sharedWAL.Clear(completedOnly); err != nil {
+		return ErrorResult(fmt.Sprintf("failed to clear shared WAL: %v", err))
+	}
+
+	if completedOnly {
+		return SilentResult("Shared WAL cleared (completed entries only)")
+	}
+	return SilentResult("Shared WAL cleared (all entries)")
+}
+
+func (t *ProactiveTool) sharedMyTasks() *ToolResult {
+	entries := t.sharedWAL.GetMyTasks()
+
+	if len(entries) == 0 {
+		return SilentResult(fmt.Sprintf("No pending tasks for agent: %s", t.agentID))
+	}
+
+	return SilentResult(t.sharedWAL.FormatEntries(entries))
 }
