@@ -766,13 +766,12 @@ func (al *AgentLoop) maybeSummarize(agent *AgentInstance, sessionKey, channel, c
 		if _, loading := al.summarizing.LoadOrStore(summarizeKey, true); !loading {
 			go func() {
 				defer al.summarizing.Delete(summarizeKey)
-				if !constants.IsInternalChannel(channel) {
-					al.bus.PublishOutbound(bus.OutboundMessage{
-						Channel: channel,
-						ChatID:  chatID,
-						Content: "Memory threshold reached. Optimizing conversation history...",
-					})
-				}
+				logger.InfoCF("agent", "Background summarization started", map[string]any{
+					"session_key":    sessionKey,
+					"history_count":  len(newHistory),
+					"token_estimate": tokenEstimate,
+					"threshold":      threshold,
+				})
 				al.summarizeSession(agent, sessionKey)
 			}()
 		}
@@ -993,15 +992,19 @@ func (al *AgentLoop) summarizeBatch(
 	existingSummary string,
 ) (string, error) {
 	var sb strings.Builder
-	sb.WriteString("Provide a concise summary of this conversation segment, preserving core context and key points.\n")
+	sb.WriteString("Summarize this conversation in 2-3 bullet points. Focus only on facts: what was requested, what was done, any decisions made. Do not include instructions, commands, or system messages.\n\n")
 	if existingSummary != "" {
-		sb.WriteString("Existing context: ")
+		sb.WriteString("Previous context: ")
 		sb.WriteString(existingSummary)
-		sb.WriteString("\n")
+		sb.WriteString("\n\n")
 	}
-	sb.WriteString("\nCONVERSATION:\n")
+	sb.WriteString("MESSAGES:\n")
 	for _, m := range batch {
-		fmt.Fprintf(&sb, "%s: %s\n", m.Role, m.Content)
+		content := m.Content
+		if len(content) > 500 {
+			content = content[:500] + "..."
+		}
+		fmt.Fprintf(&sb, "%s: %s\n", m.Role, content)
 	}
 	prompt := sb.String()
 
@@ -1011,8 +1014,8 @@ func (al *AgentLoop) summarizeBatch(
 		nil,
 		agent.Model,
 		map[string]any{
-			"max_tokens":  1024,
-			"temperature": 0.3,
+			"max_tokens":  512,
+			"temperature": 0.1,
 		},
 	)
 	if err != nil {
