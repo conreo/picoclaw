@@ -149,6 +149,10 @@ func registerSharedTools(
 		proactiveTool := tools.NewProactiveTool(agent.Workspace, cfg.Agents.Defaults.RestrictToWorkspace)
 		agent.Tools.Register(proactiveTool)
 
+		// Agent messaging tool for cross-agent communication
+		agentMessageTool := tools.NewAgentMessageTool(agent.Workspace, string(agentID))
+		agent.Tools.Register(agentMessageTool)
+
 		// Update context builder with the complete tools registry
 		agent.ContextBuilder.SetToolsRegistry(agent.Tools)
 	}
