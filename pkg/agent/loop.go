@@ -145,6 +145,10 @@ func registerSharedTools(
 		})
 		agent.Tools.Register(spawnTool)
 
+		// Proactive tool for WAL and buffer operations
+		proactiveTool := tools.NewProactiveTool(agent.Workspace, cfg.Agents.Defaults.RestrictToWorkspace)
+		agent.Tools.Register(proactiveTool)
+
 		// Update context builder with the complete tools registry
 		agent.ContextBuilder.SetToolsRegistry(agent.Tools)
 	}
