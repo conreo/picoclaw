@@ -165,6 +165,8 @@ func (c *TelegramChannel) Send(ctx context.Context, msg bus.OutboundMessage) err
 	}
 
 	htmlContent := markdownToTelegramHTML(msg.Content)
+	// Strip hallucinated system-reminder blocks (GLM bug workaround)
+	htmlContent = stripHallucinatedBlocks(htmlContent)
 
 	// Try to edit placeholder
 	if pID, ok := c.placeholders.Load(msg.ChatID); ok {
@@ -526,4 +528,23 @@ func escapeHTML(text string) string {
 	text = strings.ReplaceAll(text, "<", "&lt;")
 	text = strings.ReplaceAll(text, ">", "&gt;")
 	return text
+}
+
+func stripHallucinatedBlocks(text string) string {
+	hallucinationPatterns := []string{
+		`(?s)<system-reminder>.*?</system-reminder>`,
+		`(?s)\[system-reminder\].*?\[/system-reminder\]`,
+		`(?s)# Plan Mode - System Reminder.*?---`,
+		`(?i)CRITICAL: Plan mode ACTIVE.*?(?=\n\n|$)`,
+		`(?i)STRICTLY FORBIDDEN:.*?(?=\n\n|$)`,
+		`(?i)READ-ONLY phase.*?(?=\n\n|$)`,
+		`(?i)operational mode.*?(?=\n\n|$)`,
+		`(?i)build mode.*?(?=\n\n|$)`,
+	}
+	for _, pattern := range hallucinationPatterns {
+		re := regexp.MustCompile(pattern)
+		text = re.ReplaceAllString(text, "")
+	}
+	text = regexp.MustCompile(`\n{3,}`).ReplaceAllString(text, "\n\n")
+	return strings.TrimSpace(text)
 }
