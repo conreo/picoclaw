@@ -535,15 +535,17 @@ func stripHallucinatedBlocks(text string) string {
 		`(?s)<system-reminder>.*?</system-reminder>`,
 		`(?s)\[system-reminder\].*?\[/system-reminder\]`,
 		`(?s)# Plan Mode - System Reminder.*?---`,
-		`(?i)CRITICAL: Plan mode ACTIVE.*?(?=\n\n|$)`,
-		`(?i)STRICTLY FORBIDDEN:.*?(?=\n\n|$)`,
-		`(?i)READ-ONLY phase.*?(?=\n\n|$)`,
-		`(?i)operational mode.*?(?=\n\n|$)`,
-		`(?i)build mode.*?(?=\n\n|$)`,
+		`(?is)CRITICAL: Plan mode ACTIVE.*?(\n\n|$)`,
+		`(?is)STRICTLY FORBIDDEN:.*?(\n\n|$)`,
+		`(?is)READ-ONLY phase.*?(\n\n|$)`,
+		`(?is)operational mode.*?(\n\n|$)`,
+		`(?is)build mode.*?(\n\n|$)`,
+		`(?is)Your operational mode has changed.*?tools as needed\.\s*</system-reminder>`,
+		`(?is)You are no longer in read-only mode\..*?tools as needed\.`,
 	}
 	for _, pattern := range hallucinationPatterns {
 		re := regexp.MustCompile(pattern)
-		text = re.ReplaceAllString(text, "")
+		text = re.ReplaceAllString(text, "$1")
 	}
 	text = regexp.MustCompile(`\n{3,}`).ReplaceAllString(text, "\n\n")
 	return strings.TrimSpace(text)
